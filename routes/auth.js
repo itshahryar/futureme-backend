@@ -269,4 +269,65 @@ router.put('/profile', async (req, res) => {
   }
 });
 
+/**
+ * PUT /api/auth/change-password
+ * Body: { currentPassword, newPassword }
+ * Authenticates user, verifies current password, hashes new password, and updates Neon DB
+ */
+router.put('/change-password', async (req, res) => {
+  try {
+    let token = req.cookies?.token;
+    if (!token && req.headers.authorization?.startsWith('Bearer ')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
+
+    if (!token) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current password and new password are required' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters long' });
+    }
+
+    // Retrieve user from DB to verify current password
+    const userResult = await db.query(
+      'SELECT id, "passwordHash" FROM users WHERE id = $1',
+      [decoded.id]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = userResult.rows[0];
+    const passwordHash = user.passwordHash || user.passwordhash;
+    const isMatch = await bcrypt.compare(currentPassword, passwordHash);
+
+    if (!isMatch) {
+      return res.status(400).json({ error: 'Current password is incorrect' });
+    }
+
+    // Hash new password and update in Neon PostgreSQL
+    const salt = await bcrypt.genSalt(10);
+    const newPasswordHash = await bcrypt.hash(newPassword, salt);
+
+    await db.query(
+      'UPDATE users SET "passwordHash" = $1, "updatedAt" = NOW() WHERE id = $2',
+      [newPasswordHash, decoded.id]
+    );
+
+    return res.json({ message: 'Password changed successfully' });
+  } catch (error) {
+    console.error('Change password error:', error);
+    return res.status(500).json({ error: 'Failed to change password. Please try again.' });
+  }
+});
+
 module.exports = router;
