@@ -17,7 +17,8 @@ const initDB = async () => {
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         id VARCHAR(255) PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
+        "firstName" VARCHAR(255) NOT NULL,
+        "lastName" VARCHAR(255) DEFAULT '',
         email VARCHAR(255) UNIQUE NOT NULL,
         "passwordHash" VARCHAR(255) NOT NULL,
         role VARCHAR(50) NOT NULL DEFAULT 'STUDENT' CHECK (role IN ('STUDENT', 'ADMIN')),
@@ -25,6 +26,9 @@ const initDB = async () => {
         "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS "firstName" VARCHAR(255);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS "lastName" VARCHAR(255) DEFAULT '';
+      ALTER TABLE users ALTER COLUMN name DROP NOT NULL;
     `);
 
     console.log('Database table "users" is verified and ready.');

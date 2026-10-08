@@ -20,27 +20,44 @@ const COOKIE_OPTIONS = {
 };
 
 // Format user output for client
-const formatUser = (row) => ({
-  id: row.id,
-  name: row.name,
-  email: row.email,
-  role: row.role,
-  isActive: row.isActive ?? row.isactive,
-  createdAt: row.createdAt ?? row.createdat,
-  updatedAt: row.updatedAt ?? row.updatedat,
-});
+const formatUser = (row) => {
+  const fName = row.firstName ?? row.firstname ?? (row.name ? row.name.split(' ')[0] : '') ?? '';
+  const lName = row.lastName ?? row.lastname ?? (row.name ? row.name.split(' ').slice(1).join(' ') : '') ?? '';
+  const fullName = [fName, lName].filter(Boolean).join(' ') || fName;
+
+  return {
+    id: row.id,
+    firstName: fName,
+    lastName: lName,
+    name: fullName,
+    email: row.email,
+    role: row.role,
+    isActive: row.isActive ?? row.isactive,
+    createdAt: row.createdAt ?? row.createdat,
+    updatedAt: row.updatedAt ?? row.updatedat,
+  };
+};
 
 /**
  * POST /api/auth/register
- * Body: { name, email, password, role }
+ * Body: { firstName, lastName, email, password, role }
  * Sets HTTP-only cookie and returns user
  */
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { firstName, lastName, name, email, password, role } = req.body;
 
-    if (!name || !email || !password) {
-      return res.status(400).json({ error: 'Name, email, and password are required' });
+    let finalFirstName = (firstName || '').trim();
+    let finalLastName = (lastName || '').trim();
+
+    if (!finalFirstName && name) {
+      const parts = name.trim().split(' ');
+      finalFirstName = parts[0] || '';
+      finalLastName = parts.slice(1).join(' ') || '';
+    }
+
+    if (!finalFirstName || !email || !password) {
+      return res.status(400).json({ error: 'First name, email, and password are required' });
     }
 
     const normalizedEmail = email.trim().toLowerCase();
@@ -63,10 +80,10 @@ router.post('/register', async (req, res) => {
 
     // Insert user into Neon PostgreSQL
     const result = await db.query(
-      `INSERT INTO users (id, name, email, "passwordHash", role, "isActive", "createdAt", "updatedAt")
-       VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-       RETURNING id, name, email, role, "isActive", "createdAt", "updatedAt"`,
-      [id, name.trim(), normalizedEmail, passwordHash, assignedRole, true]
+      `INSERT INTO users (id, "firstName", "lastName", email, "passwordHash", role, "isActive", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+       RETURNING id, "firstName", "lastName", email, role, "isActive", "createdAt", "updatedAt"`,
+      [id, finalFirstName, finalLastName, normalizedEmail, passwordHash, assignedRole, true]
     );
 
     const newUser = result.rows[0];
@@ -181,7 +198,7 @@ router.get('/me', async (req, res) => {
     const decoded = jwt.verify(token, JWT_SECRET);
 
     const result = await db.query(
-      'SELECT id, name, email, role, "isActive", "createdAt", "updatedAt" FROM users WHERE id = $1',
+      'SELECT id, "firstName", "lastName", email, role, "isActive", "createdAt", "updatedAt" FROM users WHERE id = $1',
       [decoded.id]
     );
 
@@ -192,6 +209,63 @@ router.get('/me', async (req, res) => {
     return res.json({ user: formatUser(result.rows[0]) });
   } catch (error) {
     return res.status(401).json({ error: 'Invalid or expired authentication session' });
+  }
+});
+
+/**
+ * PUT /api/auth/profile
+ * Allows updating firstName and lastName.
+ * Email and role cannot be changed.
+ */
+router.put('/profile', async (req, res) => {
+  try {
+    let token = req.cookies?.token;
+
+    if (!token && req.headers.authorization?.startsWith('Bearer ')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
+
+    if (!token) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET);
+
+    const { firstName, lastName, name } = req.body;
+
+    let finalFirstName = firstName !== undefined ? firstName.trim() : '';
+    let finalLastName = lastName !== undefined ? lastName.trim() : '';
+
+    if (!finalFirstName && name) {
+      const parts = name.trim().split(' ');
+      finalFirstName = parts[0] || '';
+      finalLastName = parts.slice(1).join(' ') || '';
+    }
+
+    if (!finalFirstName) {
+      return res.status(400).json({ error: 'First name is required' });
+    }
+
+    // Only update firstName, lastName, and updatedAt. Email and role are protected.
+    const result = await db.query(
+      `UPDATE users
+       SET "firstName" = $1, "lastName" = $2, "updatedAt" = NOW()
+       WHERE id = $3
+       RETURNING id, "firstName", "lastName", email, role, "isActive", "createdAt", "updatedAt"`,
+      [finalFirstName, finalLastName, decoded.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    return res.json({
+      message: 'Profile updated successfully',
+      user: formatUser(result.rows[0]),
+    });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    return res.status(500).json({ error: 'Failed to update profile' });
   }
 });
 
