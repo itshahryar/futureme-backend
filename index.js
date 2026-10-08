@@ -5,6 +5,7 @@ require('dotenv').config();
 
 const { initDB } = require('./db');
 const authRoutes = require('./routes/auth');
+const userRoutes = require('./routes/users');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -36,6 +37,7 @@ app.use(cookieParser());
 
 // Mount Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
 
 // Base & Health Routes
 app.get('/', (req, res) => {
