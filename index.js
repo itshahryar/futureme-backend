@@ -6,6 +6,8 @@ require('dotenv').config();
 const { initDB } = require('./db');
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
+const adminOnboardingRoutes = require('./routes/adminOnboarding');
+const studentOnboardingRoutes = require('./routes/studentOnboarding');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -38,6 +40,9 @@ app.use(cookieParser());
 // Mount Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/admin/onboarding', adminOnboardingRoutes);
+app.use('/api/onboarding', studentOnboardingRoutes);
+app.use('/api/profile', studentOnboardingRoutes);
 
 // Base & Health Routes
 app.get('/', (req, res) => {

@@ -12,16 +12,171 @@ enum Role {
   ADMIN
 }
 
+enum Proficiency {
+  Beginner
+  Intermediate
+  Advanced
+}
+
+enum CertificationType {
+  Certification
+  Achievement
+}
+
 model User {
-  id           String   @id @default(uuid())
-  firstName    String
-  lastName     String   @default("")
-  email        String   @unique
-  passwordHash String
-  role         Role     @default(STUDENT)
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id             String          @id @default(uuid())
+  firstName      String
+  lastName       String          @default("")
+  email          String          @unique
+  passwordHash   String
+  role           Role            @default(STUDENT)
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  studentProfile StudentProfile?
 
   @@map("users")
+}
+
+model OnboardingSection {
+  id           String   @id @default(uuid())
+  key          String   @unique
+  title        String
+  description  String?
+  stepOrder    Int
+  isEnabled    Boolean  @default(true)
+  fieldsConfig Json     @default("{}")
+  updatedAt    DateTime @default(now())
+
+  @@map("onboarding_sections")
+}
+
+model CatalogDegree {
+  id           String   @id @default(uuid())
+  name         String   @unique
+  department   String?  @default("Computing & Technology")
+  isActive     Boolean  @default(true)
+  displayOrder Int?     @default(0)
+  createdAt    DateTime @default(now())
+
+  @@map("catalog_degrees")
+}
+
+model CatalogSkill {
+  id            String         @id @default(uuid())
+  name          String         @unique
+  category      String
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  studentSkills StudentSkill[]
+
+  @@map("catalog_skills")
+}
+
+model CatalogOption {
+  id           String   @id @default(uuid())
+  type         String
+  label        String
+  isActive     Boolean  @default(true)
+  displayOrder Int?     @default(0)
+  createdAt    DateTime @default(now())
+
+  @@unique([type, label], name: "uq_type_label")
+  @@map("catalog_options")
+}
+
+model StudentProfile {
+  id                     String                 @id @default(uuid())
+  userId                 String                 @unique
+  user                   User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone                  String?
+  studentStatus          String?                @default("Currently Enrolled")
+  latestEducation        String?
+  bio                    String?
+  university             String?
+  currentDegree          String?
+  semesterOrYear         String?
+  graduationStatus       String?                @default("In Progress")
+  expectedGraduationYear Int?
+  workPreferences        String[]               @default([])
+  areasOfInterest        String[]               @default([])
+  careerInterests        String[]               @default([])
+  shortTermGoal          String?
+  longTermGoal           String?
+  currentStepKey         String?                @default("personal_info")
+  onboardingStep         Int                    @default(1)
+  isOnboarded            Boolean                @default(false)
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+
+  skills                 StudentSkill[]
+  projects               StudentProject[]
+  experiences            StudentExperience[]
+  certifications         StudentCertification[]
+
+  @@map("student_profiles")
+}
+
+model StudentSkill {
+  id              String         @id @default(uuid())
+  profileId       String
+  profile         StudentProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  skillId         String?
+  skill           CatalogSkill?  @relation(fields: [skillId], references: [id], onDelete: SetNull)
+  customSkillName String?
+  proficiency     Proficiency
+  createdAt       DateTime       @default(now())
+
+  @@map("student_skills")
+}
+
+model StudentProject {
+  id           String         @id @default(uuid())
+  profileId    String
+  profile      StudentProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  title        String
+  description  String?
+  technologies String[]       @default([])
+  projectUrl   String?
+  githubUrl    String?
+  startDate    DateTime?
+  endDate      DateTime?
+  isCurrent    Boolean        @default(false)
+  createdAt    DateTime       @default(now())
+
+  @@map("student_projects")
+}
+
+model StudentExperience {
+  id             String         @id @default(uuid())
+  profileId      String
+  profile        StudentProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  companyName    String
+  roleTitle      String
+  employmentType String?        @default("Internship")
+  location       String?
+  startDate      DateTime?
+  endDate        DateTime?
+  isCurrent      Boolean        @default(false)
+  description    String?
+  createdAt      DateTime       @default(now())
+
+  @@map("student_experiences")
+}
+
+model StudentCertification {
+  id            String            @id @default(uuid())
+  profileId     String
+  profile       StudentProfile    @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  title         String
+  type          CertificationType @default(Certification)
+  issuer        String?
+  issueDate     DateTime?
+  expiryDate    DateTime?
+  credentialUrl String?
+  credentialId  String?
+  description   String?
+  createdAt     DateTime          @default(now())
+
+  @@map("student_certifications")
 }
