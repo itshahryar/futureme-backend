@@ -17,16 +17,30 @@ const getOrCreateProfile = async (userId) => {
     return existing.rows[0];
   }
 
-  const profileId = crypto.randomUUID();
-  const created = await db.query(
-    `INSERT INTO student_profiles (
-      id, "userId", "studentStatus", "currentStepKey", "onboardingStep", "isOnboarded", "createdAt", "updatedAt"
-    ) VALUES ($1, $2, 'Currently Enrolled', 'personal_info', 1, false, NOW(), NOW())
-    RETURNING *`,
-    [profileId, userId]
-  );
+  try {
+    const profileId = crypto.randomUUID();
+    const created = await db.query(
+      `INSERT INTO student_profiles (
+        id, "userId", "studentStatus", "currentStepKey", "onboardingStep", "isOnboarded", "createdAt", "updatedAt"
+      ) VALUES ($1, $2, 'Currently Enrolled', 'personal_info', 1, false, NOW(), NOW())
+      ON CONFLICT ("userId") DO UPDATE SET "updatedAt" = NOW()
+      RETURNING *`,
+      [profileId, userId]
+    );
 
-  return created.rows[0];
+    return created.rows[0];
+  } catch (err) {
+    if (err.code === '23505') {
+      const retry = await db.query(
+        'SELECT * FROM student_profiles WHERE "userId" = $1',
+        [userId]
+      );
+      if (retry.rows.length > 0) {
+        return retry.rows[0];
+      }
+    }
+    throw err;
+  }
 };
 
 /**

@@ -9,6 +9,7 @@ const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
 const adminOnboardingRoutes = require('./routes/adminOnboarding');
 const studentOnboardingRoutes = require('./routes/studentOnboarding');
+const aiLearningRoutes = require('./routes/aiLearning');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -44,6 +45,8 @@ app.use('/api/users', userRoutes);
 app.use('/api/admin/onboarding', adminOnboardingRoutes);
 app.use('/api/onboarding', studentOnboardingRoutes);
 app.use('/api/profile', studentOnboardingRoutes);
+app.use('/api/ai', aiLearningRoutes);
+app.use('/api', aiLearningRoutes);
 
 // Base & Health Routes
 app.get('/', (req, res) => {

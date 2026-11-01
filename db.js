@@ -294,6 +294,96 @@ const initDB = async () => {
       CREATE INDEX IF NOT EXISTS idx_student_certifications_profile_id ON student_certifications("profileId");
     `);
 
+    // 11. Student Skill Analyses (Phase 3)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS student_skill_analyses (
+        id VARCHAR(255) PRIMARY KEY,
+        "profileId" VARCHAR(255) NOT NULL REFERENCES student_profiles(id) ON DELETE CASCADE,
+        "targetRole" VARCHAR(255) NOT NULL,
+        "matchScore" INTEGER NOT NULL DEFAULT 0,
+        summary TEXT,
+        strengths JSONB DEFAULT '[]'::jsonb,
+        "proficientSkills" JSONB DEFAULT '[]'::jsonb,
+        "skillsToUpgrade" JSONB DEFAULT '[]'::jsonb,
+        "missingSkills" JSONB DEFAULT '[]'::jsonb,
+        "recommendedFocusAreas" JSONB DEFAULT '[]'::jsonb,
+        "estimatedTimeToReadiness" VARCHAR(100),
+        "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_student_skill_analyses_profile_id ON student_skill_analyses("profileId");
+    `);
+
+    // 12. Student Learning Paths (Phase 4)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS student_learning_paths (
+        id VARCHAR(255) PRIMARY KEY,
+        "profileId" VARCHAR(255) NOT NULL REFERENCES student_profiles(id) ON DELETE CASCADE,
+        "analysisId" VARCHAR(255) REFERENCES student_skill_analyses(id) ON DELETE SET NULL,
+        "targetRole" VARCHAR(255) NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        "totalDurationWeeks" INTEGER DEFAULT 12,
+        milestones JSONB DEFAULT '[]'::jsonb,
+        status VARCHAR(50) DEFAULT 'ACTIVE',
+        "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_student_learning_paths_profile_id ON student_learning_paths("profileId");
+    `);
+
+    // 13. Topic Learning Materials & Resources (Phase 5)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS topic_learning_materials (
+        id VARCHAR(255) PRIMARY KEY,
+        "topicId" VARCHAR(255) NOT NULL,
+        "topicTitle" VARCHAR(255) NOT NULL,
+        "skillCategory" VARCHAR(100),
+        overview TEXT,
+        "keyConcepts" JSONB DEFAULT '[]'::jsonb,
+        "detailedContent" TEXT,
+        "codeExamples" JSONB DEFAULT '[]'::jsonb,
+        "bestPractices" JSONB DEFAULT '[]'::jsonb,
+        resources JSONB DEFAULT '[]'::jsonb,
+        "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_topic_learning_topicId UNIQUE ("topicId")
+      );
+      CREATE INDEX IF NOT EXISTS idx_topic_learning_topicId ON topic_learning_materials("topicId");
+    `);
+
+    // 14. Topic Quizzes & Assessments (Phase 6)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS topic_assessments (
+        id VARCHAR(255) PRIMARY KEY,
+        "topicId" VARCHAR(255) NOT NULL,
+        "topicTitle" VARCHAR(255) NOT NULL,
+        "skillName" VARCHAR(100),
+        questions JSONB NOT NULL DEFAULT '[]'::jsonb,
+        "passingScore" INTEGER DEFAULT 70,
+        "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_topic_assessment_topicId UNIQUE ("topicId")
+      );
+      CREATE INDEX IF NOT EXISTS idx_topic_assessment_topicId ON topic_assessments("topicId");
+    `);
+
+    // 15. Student Assessment Submissions & Progress (Phase 6)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS student_assessment_submissions (
+        id VARCHAR(255) PRIMARY KEY,
+        "profileId" VARCHAR(255) NOT NULL REFERENCES student_profiles(id) ON DELETE CASCADE,
+        "topicId" VARCHAR(255) NOT NULL,
+        score INTEGER NOT NULL,
+        passed BOOLEAN NOT NULL DEFAULT false,
+        answers JSONB DEFAULT '[]'::jsonb,
+        "skillUpgraded" VARCHAR(100),
+        "newProficiency" VARCHAR(50),
+        "submittedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_student_assessments_profile_id ON student_assessment_submissions("profileId");
+      CREATE INDEX IF NOT EXISTS idx_student_assessments_topic_id ON student_assessment_submissions("topicId");
+    `);
+
     // Seed default Onboarding Sections
     for (const sec of INITIAL_SECTIONS) {
       await client.query(
