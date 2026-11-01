@@ -1,7 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 
 const { initDB } = require('./db');
 const authRoutes = require('./routes/auth');
@@ -75,5 +76,7 @@ app.use((err, req, res, next) => {
 // Start Server and verify DB connection
 app.listen(PORT, async () => {
   console.log(`Server running on http://localhost:${PORT}`);
-  await initDB();
+  if (process.env.SEED_DB === 'true') {
+    await initDB();
+  }
 });

@@ -1,6 +1,7 @@
 const { Pool } = require('pg');
 const crypto = require('crypto');
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -45,29 +46,37 @@ const INITIAL_SECTIONS = [
     stepOrder: 3,
     isEnabled: true,
     fieldsConfig: {
-      minSkillsRequired: 3,
+      minSkillsRequired: 1,
       allowCustomSkills: true,
       levels: ['Beginner', 'Intermediate', 'Advanced'],
     },
   },
   {
-    key: 'projects_experience',
-    title: 'Projects & Experience',
-    description: 'Portfolio projects, internships, work experience, and achievements',
+    key: 'experience',
+    title: 'Experience',
+    description: 'Internships, work experience, and employment history',
     stepOrder: 4,
     isEnabled: true,
     fieldsConfig: {
-      allowProjects: true,
-      allowExperience: true,
-      allowCertifications: true,
-      projectsRequired: false,
+      experienceRequired: { label: 'Experience Required', required: false, enabled: true },
+    },
+  },
+  {
+    key: 'projects',
+    title: 'Projects',
+    description: 'Portfolio projects, technologies used, links, and certifications',
+    stepOrder: 5,
+    isEnabled: true,
+    fieldsConfig: {
+      projectsRequired: { label: 'Projects Required', required: false, enabled: true },
+      certificationsRequired: { label: 'Certifications Required', required: false, enabled: true },
     },
   },
   {
     key: 'interests_goals',
     title: 'Interests, Preferences & Goals',
     description: 'Areas of interest, work preferences, and short/long term career goals',
-    stepOrder: 5,
+    stepOrder: 6,
     isEnabled: true,
     fieldsConfig: {
       areasOfInterestRequired: true,
@@ -82,62 +91,11 @@ const INITIAL_SECTIONS = [
 // Default initial degrees for Admin catalog
 const INITIAL_DEGREES = [
   'BS Computer Science',
-  'BS Software Engineering',
-  'BS Information Technology',
-  'BS Artificial Intelligence',
-  'BS Data Science',
-  'BS Cyber Security',
-  'BS Computer Engineering',
-  'BS Electrical Engineering',
-  'Bachelor of Business Administration (BBA)',
-  'BS Accounting & Finance',
-  'BS Psychology',
-  'Other / Custom Degree',
 ];
 
 // Default initial skills for Admin catalog
 const INITIAL_SKILLS = [
-  // Frontend
-  { name: 'JavaScript', category: 'Frontend' },
-  { name: 'TypeScript', category: 'Frontend' },
   { name: 'React', category: 'Frontend' },
-  { name: 'HTML5 & CSS3', category: 'Frontend' },
-  { name: 'Tailwind CSS', category: 'Frontend' },
-  { name: 'Next.js', category: 'Frontend' },
-  { name: 'Vue.js', category: 'Frontend' },
-  // Backend & APIs
-  { name: 'Node.js', category: 'Backend' },
-  { name: 'Express.js', category: 'Backend' },
-  { name: 'Python', category: 'Backend' },
-  { name: 'Django', category: 'Backend' },
-  { name: 'FastAPI', category: 'Backend' },
-  { name: 'Java', category: 'Backend' },
-  { name: 'Spring Boot', category: 'Backend' },
-  { name: 'C#', category: 'Backend' },
-  { name: '.NET Core', category: 'Backend' },
-  { name: 'REST APIs', category: 'Backend' },
-  // Databases & Cloud
-  { name: 'PostgreSQL', category: 'Databases & Cloud' },
-  { name: 'MongoDB', category: 'Databases & Cloud' },
-  { name: 'MySQL', category: 'Databases & Cloud' },
-  { name: 'Redis', category: 'Databases & Cloud' },
-  { name: 'Docker', category: 'Databases & Cloud' },
-  { name: 'AWS', category: 'Databases & Cloud' },
-  { name: 'Git & GitHub', category: 'Databases & Cloud' },
-  // AI, Data Science & Analytics
-  { name: 'Machine Learning', category: 'AI & Data' },
-  { name: 'Deep Learning', category: 'AI & Data' },
-  { name: 'Data Analysis', category: 'AI & Data' },
-  { name: 'Pandas & NumPy', category: 'AI & Data' },
-  { name: 'Power BI', category: 'AI & Data' },
-  { name: 'SQL', category: 'AI & Data' },
-  // Design & Professional
-  { name: 'UI/UX Design', category: 'Design & Product' },
-  { name: 'Figma', category: 'Design & Product' },
-  { name: 'Agile & Scrum', category: 'Management' },
-  { name: 'Problem Solving', category: 'Soft Skills' },
-  { name: 'Communication', category: 'Soft Skills' },
-  { name: 'Team Collaboration', category: 'Soft Skills' },
 ];
 
 // Default initial catalog options
@@ -148,27 +106,10 @@ const INITIAL_OPTIONS = [
   { type: 'WORK_PREFERENCE', label: 'Hybrid', displayOrder: 3 },
 
   // Areas of Interest
-  { type: 'AREA_OF_INTEREST', label: 'Web Technologies & Full Stack', displayOrder: 1 },
-  { type: 'AREA_OF_INTEREST', label: 'Artificial Intelligence & Machine Learning', displayOrder: 2 },
-  { type: 'AREA_OF_INTEREST', label: 'Cloud Computing & DevOps', displayOrder: 3 },
-  { type: 'AREA_OF_INTEREST', label: 'Mobile App Development', displayOrder: 4 },
-  { type: 'AREA_OF_INTEREST', label: 'Cybersecurity & Ethical Hacking', displayOrder: 5 },
-  { type: 'AREA_OF_INTEREST', label: 'Data Science & Big Data', displayOrder: 6 },
-  { type: 'AREA_OF_INTEREST', label: 'UI/UX & Product Design', displayOrder: 7 },
-  { type: 'AREA_OF_INTEREST', label: 'Blockchain & Web3', displayOrder: 8 },
+  { type: 'AREA_OF_INTEREST', label: 'Web Technologies', displayOrder: 1 },
 
   // Career Interests
-  { type: 'CAREER_INTEREST', label: 'Full Stack Developer', displayOrder: 1 },
-  { type: 'CAREER_INTEREST', label: 'Frontend Developer', displayOrder: 2 },
-  { type: 'CAREER_INTEREST', label: 'Backend Developer', displayOrder: 3 },
-  { type: 'CAREER_INTEREST', label: 'Mobile App Developer', displayOrder: 4 },
-  { type: 'CAREER_INTEREST', label: 'AI / Machine Learning Engineer', displayOrder: 5 },
-  { type: 'CAREER_INTEREST', label: 'Data Analyst / Scientist', displayOrder: 6 },
-  { type: 'CAREER_INTEREST', label: 'Cloud / DevOps Engineer', displayOrder: 7 },
-  { type: 'CAREER_INTEREST', label: 'Cybersecurity Analyst', displayOrder: 8 },
-  { type: 'CAREER_INTEREST', label: 'UI/UX Designer', displayOrder: 9 },
-  { type: 'CAREER_INTEREST', label: 'Product Manager', displayOrder: 10 },
-  { type: 'CAREER_INTEREST', label: 'QA Engineer', displayOrder: 11 },
+  { type: 'CAREER_INTEREST', label: 'Frontend Developer', displayOrder: 1 },
 ];
 
 // Initialize database schema and verify Module 2 tables
@@ -295,6 +236,8 @@ const initDB = async () => {
         "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
       CREATE INDEX IF NOT EXISTS idx_student_skills_profile_id ON student_skills("profileId");
+      ALTER TABLE student_skills DROP CONSTRAINT IF EXISTS "student_skills_skillId_fkey";
+      ALTER TABLE student_skills ADD CONSTRAINT "student_skills_skillId_fkey" FOREIGN KEY ("skillId") REFERENCES catalog_skills(id) ON DELETE SET NULL;
     `);
 
     // 8. Student Projects

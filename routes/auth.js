@@ -33,6 +33,7 @@ const formatUser = (row) => {
     email: row.email,
     role: row.role,
     isActive: row.isActive ?? row.isactive,
+    isOnboarded: Boolean(row.isOnboarded ?? row.isonboarded),
     createdAt: row.createdAt ?? row.createdat,
     updatedAt: row.updatedAt ?? row.updatedat,
   };
@@ -122,9 +123,12 @@ router.post('/login', async (req, res) => {
 
     const normalizedEmail = email.trim().toLowerCase();
 
-    // Find user in Neon PostgreSQL
+    // Find user in Neon PostgreSQL with onboarding status
     const result = await db.query(
-      'SELECT * FROM users WHERE LOWER(email) = LOWER($1)',
+      `SELECT u.*, sp."isOnboarded"
+       FROM users u
+       LEFT JOIN student_profiles sp ON u.id = sp."userId"
+       WHERE LOWER(u.email) = LOWER($1)`,
       [normalizedEmail]
     );
 
@@ -198,7 +202,11 @@ router.get('/me', async (req, res) => {
     const decoded = jwt.verify(token, JWT_SECRET);
 
     const result = await db.query(
-      'SELECT id, "firstName", "lastName", email, role, "isActive", "createdAt", "updatedAt" FROM users WHERE id = $1',
+      `SELECT u.id, u."firstName", u."lastName", u.email, u.role, u."isActive", u."createdAt", u."updatedAt",
+              sp."isOnboarded"
+       FROM users u
+       LEFT JOIN student_profiles sp ON u.id = sp."userId"
+       WHERE u.id = $1`,
       [decoded.id]
     );
 

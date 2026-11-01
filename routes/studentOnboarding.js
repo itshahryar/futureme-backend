@@ -348,17 +348,124 @@ router.put('/save-step', requireAuth, async (req, res) => {
             ? item.proficiency
             : 'Beginner';
 
+          let validSkillId = null;
           if (item.skillId) {
+            const check = await db.query('SELECT id FROM catalog_skills WHERE id = $1', [item.skillId]);
+            if (check.rows.length > 0) {
+              validSkillId = check.rows[0].id;
+            }
+          }
+          if (!validSkillId && item.name) {
+            const checkByName = await db.query('SELECT id FROM catalog_skills WHERE LOWER(name) = LOWER($1)', [item.name.trim()]);
+            if (checkByName.rows.length > 0) {
+              validSkillId = checkByName.rows[0].id;
+            }
+          }
+
+          if (validSkillId) {
             await db.query(
               `INSERT INTO student_skills (id, "profileId", "skillId", "customSkillName", proficiency, "createdAt")
                VALUES ($1, $2, $3, NULL, $4, NOW())`,
-              [crypto.randomUUID(), profile.id, item.skillId, prof]
+              [crypto.randomUUID(), profile.id, validSkillId, prof]
             );
           } else if (item.name) {
             await db.query(
               `INSERT INTO student_skills (id, "profileId", "skillId", "customSkillName", proficiency, "createdAt")
                VALUES ($1, $2, NULL, $3, $4, NOW())`,
               [crypto.randomUUID(), profile.id, item.name.trim(), prof]
+            );
+          }
+        }
+      }
+
+      await db.query(
+        `UPDATE student_profiles
+         SET "currentStepKey" = COALESCE($1, "currentStepKey"), "updatedAt" = NOW()
+         WHERE id = $2`,
+        [nextStepKey || null, profile.id]
+      );
+    } else if (sectionKey === 'experience') {
+      const { experiences } = data;
+
+      if (Array.isArray(experiences)) {
+        await db.query('DELETE FROM student_experiences WHERE "profileId" = $1', [profile.id]);
+        for (const exp of experiences) {
+          if (exp.companyName && exp.roleTitle) {
+            await db.query(
+              `INSERT INTO student_experiences (
+                id, "profileId", "companyName", "roleTitle", "employmentType", location, "startDate", "endDate", "isCurrent", description, "createdAt"
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
+              [
+                crypto.randomUUID(),
+                profile.id,
+                exp.companyName.trim(),
+                exp.roleTitle.trim(),
+                exp.employmentType || 'Internship',
+                exp.location || null,
+                exp.startDate || null,
+                exp.endDate || null,
+                Boolean(exp.isCurrent),
+                exp.description || null,
+              ]
+            );
+          }
+        }
+      }
+
+      await db.query(
+        `UPDATE student_profiles
+         SET "currentStepKey" = COALESCE($1, "currentStepKey"), "updatedAt" = NOW()
+         WHERE id = $2`,
+        [nextStepKey || null, profile.id]
+      );
+    } else if (sectionKey === 'projects') {
+      const { projects, certifications } = data;
+
+      if (Array.isArray(projects)) {
+        await db.query('DELETE FROM student_projects WHERE "profileId" = $1', [profile.id]);
+        for (const proj of projects) {
+          if (proj.title && proj.title.trim()) {
+            await db.query(
+              `INSERT INTO student_projects (
+                id, "profileId", title, description, technologies, "projectUrl", "githubUrl", "startDate", "endDate", "isCurrent", "createdAt"
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
+              [
+                crypto.randomUUID(),
+                profile.id,
+                proj.title.trim(),
+                proj.description || null,
+                proj.technologies || [],
+                proj.projectUrl || null,
+                proj.githubUrl || null,
+                proj.startDate || null,
+                proj.endDate || null,
+                Boolean(proj.isCurrent),
+              ]
+            );
+          }
+        }
+      }
+
+      if (Array.isArray(certifications)) {
+        await db.query('DELETE FROM student_certifications WHERE "profileId" = $1', [profile.id]);
+        for (const cert of certifications) {
+          if (cert.title && cert.title.trim()) {
+            await db.query(
+              `INSERT INTO student_certifications (
+                id, "profileId", title, type, issuer, "issueDate", "expiryDate", "credentialUrl", "credentialId", description, "createdAt"
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
+              [
+                crypto.randomUUID(),
+                profile.id,
+                cert.title.trim(),
+                cert.type === 'Achievement' ? 'Achievement' : 'Certification',
+                cert.issuer || null,
+                cert.issueDate || null,
+                cert.expiryDate || null,
+                cert.credentialUrl || null,
+                cert.credentialId || null,
+                cert.description || null,
+              ]
             );
           }
         }
@@ -469,8 +576,8 @@ router.put('/save-step', requireAuth, async (req, res) => {
          WHERE id = $7`,
         [
           Array.isArray(workPreferences) ? workPreferences : [],
-          Array.isArray(areasOfInterest) ? areasOfInterest : [],
-          Array.isArray(careerInterests) ? careerInterests : [],
+          Array.isArray(areasOfInterest) ? areasOfInterest.slice(0, 3) : [],
+          Array.isArray(careerInterests) ? careerInterests.slice(0, 3) : [],
           shortTermGoal || null,
           longTermGoal || null,
           nextStepKey || null,
@@ -506,6 +613,54 @@ router.post('/complete', requireAuth, async (req, res) => {
 });
 
 /**
+ * PUT /api/profile/preferences
+ * Dedicated endpoint to update student career preferences, interests & goals
+ */
+router.put('/preferences', requireAuth, async (req, res) => {
+  try {
+    const profile = await getOrCreateProfile(req.user.id);
+    const {
+      workPreferences,
+      areasOfInterest,
+      careerInterests,
+      shortTermGoal,
+      longTermGoal,
+    } = req.body;
+
+    const cleanWork = Array.isArray(workPreferences) ? workPreferences : [];
+    const cleanAreas = Array.isArray(areasOfInterest) ? areasOfInterest.slice(0, 3) : [];
+    const cleanCareers = Array.isArray(careerInterests) ? careerInterests.slice(0, 3) : [];
+    const cleanShort = shortTermGoal !== undefined && shortTermGoal !== null && String(shortTermGoal).trim() !== ''
+      ? String(shortTermGoal).trim()
+      : null;
+    const cleanLong = longTermGoal !== undefined && longTermGoal !== null && String(longTermGoal).trim() !== ''
+      ? String(longTermGoal).trim()
+      : null;
+
+    const result = await db.query(
+      `UPDATE student_profiles
+       SET "workPreferences" = $1,
+           "areasOfInterest" = $2,
+           "careerInterests" = $3,
+           "shortTermGoal" = $4,
+           "longTermGoal" = $5,
+           "updatedAt" = NOW()
+       WHERE id = $6
+       RETURNING *`,
+      [cleanWork, cleanAreas, cleanCareers, cleanShort, cleanLong, profile.id]
+    );
+
+    return res.json({
+      message: 'Preferences & goals updated successfully',
+      profile: result.rows[0],
+    });
+  } catch (err) {
+    console.error('Error updating preferences:', err);
+    return res.status(500).json({ error: 'Failed to update preferences' });
+  }
+});
+
+/**
  * PUT /api/profile
  * Allows full profile editing from dashboard
  */
@@ -513,6 +668,8 @@ router.put('/', requireAuth, async (req, res) => {
   try {
     const profile = await getOrCreateProfile(req.user.id);
     const {
+      firstName,
+      lastName,
       phone,
       headline,
       bio,
@@ -535,85 +692,141 @@ router.put('/', requireAuth, async (req, res) => {
       careerInterests,
       shortTermGoal,
       longTermGoal,
-      firstName,
-      lastName,
     } = req.body;
 
+    // 1. Update user details if firstName or lastName are provided
     if (firstName !== undefined || lastName !== undefined) {
+      const uRes = await db.query('SELECT "firstName", "lastName" FROM users WHERE id = $1', [req.user.id]);
+      const currentU = uRes.rows[0] || {};
+      const newFirst = firstName !== undefined ? firstName.trim() : (currentU.firstName || '');
+      const newLast = lastName !== undefined ? lastName.trim() : (currentU.lastName || '');
+      const fullName = [newFirst, newLast].filter(Boolean).join(' ') || newFirst;
+
       await db.query(
         `UPDATE users
-         SET "firstName" = COALESCE($1, "firstName"),
-             "lastName" = COALESCE($2, "lastName"),
+         SET "firstName" = $1,
+             "lastName" = $2,
+             name = $3,
              "updatedAt" = NOW()
-         WHERE id = $3`,
-        [
-          firstName !== undefined ? firstName.trim() : null,
-          lastName !== undefined ? lastName.trim() : null,
-          req.user.id,
-        ]
+         WHERE id = $4`,
+        [newFirst, newLast, fullName, req.user.id]
       );
     }
 
-    const finalSchool = school || university || null;
-    const finalDegree = degree || currentDegree || null;
-    const parsedStartYear = startYear ? parseInt(startYear, 10) : null;
-    const parsedEndYear = endYear
-      ? parseInt(endYear, 10)
-      : expectedGraduationYear
-      ? parseInt(expectedGraduationYear, 10)
-      : null;
+    // 2. Build dynamic update for student_profiles
+    const updates = [];
+    const values = [];
+    let paramIdx = 1;
 
-    await db.query(
-      `UPDATE student_profiles
-       SET phone = COALESCE($1, phone),
-           headline = COALESCE($2, headline),
-           bio = COALESCE($3, bio),
-           school = COALESCE($4, school),
-           degree = COALESCE($5, degree),
-           "fieldOfStudy" = COALESCE($6, "fieldOfStudy"),
-           "startMonth" = COALESCE($7, "startMonth"),
-           "startYear" = COALESCE($8, "startYear"),
-           "endMonth" = COALESCE($9, "endMonth"),
-           "endYear" = COALESCE($10, "endYear"),
-           grade = COALESCE($11, grade),
-           activities = COALESCE($12, activities),
-           university = COALESCE($4, university),
-           "currentDegree" = COALESCE($5, "currentDegree"),
-           "semesterOrYear" = COALESCE($13, "semesterOrYear"),
-           "graduationStatus" = COALESCE($14, "graduationStatus"),
-           "expectedGraduationYear" = COALESCE($10, "expectedGraduationYear"),
-           "workPreferences" = COALESCE($15, "workPreferences"),
-           "areasOfInterest" = COALESCE($16, "areasOfInterest"),
-           "careerInterests" = COALESCE($17, "careerInterests"),
-           "shortTermGoal" = COALESCE($18, "shortTermGoal"),
-           "longTermGoal" = COALESCE($19, "longTermGoal"),
-           "updatedAt" = NOW()
-       WHERE id = $20`,
-      [
-        phone !== undefined ? phone : null,
-        headline !== undefined ? headline : null,
-        bio !== undefined ? bio : null,
-        finalSchool,
-        finalDegree,
-        fieldOfStudy !== undefined ? fieldOfStudy : null,
-        startMonth !== undefined ? startMonth : null,
-        parsedStartYear,
-        endMonth !== undefined ? endMonth : null,
-        parsedEndYear,
-        grade !== undefined ? grade : null,
-        activities !== undefined ? activities : null,
-        semesterOrYear !== undefined ? semesterOrYear : null,
-        graduationStatus !== undefined ? graduationStatus : null,
-        workPreferences !== undefined ? workPreferences : null,
-        areasOfInterest !== undefined ? areasOfInterest : null,
-        careerInterests !== undefined ? careerInterests : null,
-        shortTermGoal !== undefined ? shortTermGoal : null,
-        longTermGoal !== undefined ? longTermGoal : null,
-        profile.id,
-      ]
+    // School / University
+    const finalSchool = school !== undefined ? school : university;
+    if (finalSchool !== undefined) {
+      const val = finalSchool !== null && finalSchool !== '' ? String(finalSchool).trim() : null;
+      updates.push(`school = $${paramIdx}`);
+      values.push(val);
+      paramIdx++;
+      updates.push(`university = $${paramIdx}`);
+      values.push(val);
+      paramIdx++;
+    }
+
+    // Degree / Current Degree
+    const finalDegree = degree !== undefined ? degree : currentDegree;
+    if (finalDegree !== undefined) {
+      const val = finalDegree !== null && finalDegree !== '' ? String(finalDegree).trim() : null;
+      updates.push(`degree = $${paramIdx}`);
+      values.push(val);
+      paramIdx++;
+      updates.push(`"currentDegree" = $${paramIdx}`);
+      values.push(val);
+      paramIdx++;
+    }
+
+    // Start Year
+    if (startYear !== undefined) {
+      const cleanStartYear =
+        startYear !== null && startYear !== '' && !isNaN(parseInt(startYear, 10))
+          ? parseInt(startYear, 10)
+          : null;
+      updates.push(`"startYear" = $${paramIdx}`);
+      values.push(cleanStartYear);
+      paramIdx++;
+    }
+
+    // End Year / Expected Graduation Year
+    const finalEndYear = endYear !== undefined ? endYear : expectedGraduationYear;
+    if (finalEndYear !== undefined) {
+      const cleanEndYear =
+        finalEndYear !== null && finalEndYear !== '' && !isNaN(parseInt(finalEndYear, 10))
+          ? parseInt(finalEndYear, 10)
+          : null;
+      updates.push(`"endYear" = $${paramIdx}`);
+      values.push(cleanEndYear);
+      paramIdx++;
+      updates.push(`"expectedGraduationYear" = $${paramIdx}`);
+      values.push(cleanEndYear);
+      paramIdx++;
+    }
+
+    // Strings
+    const stringFields = [
+      ['phone', phone],
+      ['headline', headline],
+      ['bio', bio],
+      ['fieldOfStudy', fieldOfStudy, '"fieldOfStudy"'],
+      ['startMonth', startMonth, '"startMonth"'],
+      ['endMonth', endMonth, '"endMonth"'],
+      ['grade', grade],
+      ['activities', activities],
+      ['semesterOrYear', semesterOrYear, '"semesterOrYear"'],
+      ['graduationStatus', graduationStatus, '"graduationStatus"'],
+      ['shortTermGoal', shortTermGoal, '"shortTermGoal"'],
+      ['longTermGoal', longTermGoal, '"longTermGoal"'],
+    ];
+
+    for (const [key, val, colName] of stringFields) {
+      if (val !== undefined) {
+        const col = colName || key;
+        const cleanVal = val !== null && val !== '' ? String(val).trim() : null;
+        updates.push(`${col} = $${paramIdx}`);
+        values.push(cleanVal);
+        paramIdx++;
+      }
+    }
+
+    // Arrays
+    if (workPreferences !== undefined) {
+      updates.push(`"workPreferences" = $${paramIdx}`);
+      values.push(Array.isArray(workPreferences) ? workPreferences : []);
+      paramIdx++;
+    }
+    if (areasOfInterest !== undefined) {
+      updates.push(`"areasOfInterest" = $${paramIdx}`);
+      values.push(Array.isArray(areasOfInterest) ? areasOfInterest.slice(0, 3) : []);
+      paramIdx++;
+    }
+    if (careerInterests !== undefined) {
+      updates.push(`"careerInterests" = $${paramIdx}`);
+      values.push(Array.isArray(careerInterests) ? careerInterests.slice(0, 3) : []);
+      paramIdx++;
+    }
+
+    if (updates.length > 0) {
+      updates.push(`"updatedAt" = NOW()`);
+      values.push(profile.id);
+      const queryStr = `UPDATE student_profiles SET ${updates.join(', ')} WHERE id = $${paramIdx}`;
+      await db.query(queryStr, values);
+    }
+
+    const updatedProfileRes = await db.query(
+      'SELECT * FROM student_profiles WHERE id = $1',
+      [profile.id]
     );
 
-    return res.json({ message: 'Profile updated successfully' });
+    return res.json({
+      message: 'Profile updated successfully',
+      profile: updatedProfileRes.rows[0],
+    });
   } catch (err) {
     console.error('Error updating profile:', err);
     return res.status(500).json({ error: 'Failed to update profile' });
@@ -621,6 +834,174 @@ router.put('/', requireAuth, async (req, res) => {
 });
 
 // Single-item sub-resource CRUD endpoints
+
+// --- SKILLS ---
+router.post('/skills', requireAuth, async (req, res) => {
+  try {
+    const profile = await getOrCreateProfile(req.user.id);
+    const { name, skillId, proficiency } = req.body;
+    if (!name && !skillId) {
+      return res.status(400).json({ error: 'Skill name or skillId is required' });
+    }
+
+    const prof = ['Beginner', 'Intermediate', 'Advanced'].includes(proficiency) ? proficiency : 'Beginner';
+    let validSkillId = null;
+
+    if (skillId) {
+      const check = await db.query('SELECT id, name FROM catalog_skills WHERE id = $1', [skillId]);
+      if (check.rows.length > 0) validSkillId = check.rows[0].id;
+    }
+    if (!validSkillId && name) {
+      const checkByName = await db.query('SELECT id, name FROM catalog_skills WHERE LOWER(name) = LOWER($1)', [name.trim()]);
+      if (checkByName.rows.length > 0) validSkillId = checkByName.rows[0].id;
+    }
+
+    // Check if skill is already on this profile
+    let duplicateCheck;
+    if (validSkillId) {
+      duplicateCheck = await db.query(
+        'SELECT id FROM student_skills WHERE "profileId" = $1 AND "skillId" = $2',
+        [profile.id, validSkillId]
+      );
+    } else {
+      duplicateCheck = await db.query(
+        'SELECT id FROM student_skills WHERE "profileId" = $1 AND LOWER("customSkillName") = LOWER($2)',
+        [profile.id, (name || '').trim()]
+      );
+    }
+
+    if (duplicateCheck && duplicateCheck.rows.length > 0) {
+      return res.status(400).json({ error: 'Skill is already added to your profile' });
+    }
+
+    const newId = crypto.randomUUID();
+    let result;
+    if (validSkillId) {
+      result = await db.query(
+        `INSERT INTO student_skills (id, "profileId", "skillId", "customSkillName", proficiency, "createdAt")
+         VALUES ($1, $2, $3, NULL, $4, NOW())
+         RETURNING *`,
+        [newId, profile.id, validSkillId, prof]
+      );
+    } else {
+      result = await db.query(
+        `INSERT INTO student_skills (id, "profileId", "skillId", "customSkillName", proficiency, "createdAt")
+         VALUES ($1, $2, NULL, $3, $4, NOW())
+         RETURNING *`,
+        [newId, profile.id, (name || '').trim(), prof]
+      );
+    }
+
+    return res.status(201).json({ skill: result.rows[0] });
+  } catch (err) {
+    console.error('Error adding skill:', err);
+    return res.status(500).json({ error: 'Failed to add skill' });
+  }
+});
+
+/**
+ * PUT /api/profile/skills
+ * Bulk updates the student's skills with a Save button
+ */
+router.put('/skills', requireAuth, async (req, res) => {
+  try {
+    const profile = await getOrCreateProfile(req.user.id);
+    const { skills } = req.body;
+
+    if (!Array.isArray(skills)) {
+      return res.status(400).json({ error: 'Skills array is required' });
+    }
+
+    await db.query('DELETE FROM student_skills WHERE "profileId" = $1', [profile.id]);
+
+    for (const item of skills) {
+      if (!item || (!item.name && !item.skillId)) continue;
+      const prof = ['Beginner', 'Intermediate', 'Advanced'].includes(item.proficiency)
+        ? item.proficiency
+        : 'Beginner';
+
+      let validSkillId = null;
+      if (item.skillId) {
+        const check = await db.query('SELECT id FROM catalog_skills WHERE id = $1', [item.skillId]);
+        if (check.rows.length > 0) validSkillId = check.rows[0].id;
+      }
+      if (!validSkillId && item.name) {
+        const checkByName = await db.query('SELECT id FROM catalog_skills WHERE LOWER(name) = LOWER($1)', [item.name.trim()]);
+        if (checkByName.rows.length > 0) validSkillId = checkByName.rows[0].id;
+      }
+
+      const newId = crypto.randomUUID();
+      if (validSkillId) {
+        await db.query(
+          `INSERT INTO student_skills (id, "profileId", "skillId", "customSkillName", proficiency, "createdAt")
+           VALUES ($1, $2, $3, NULL, $4, NOW())`,
+          [newId, profile.id, validSkillId, prof]
+        );
+      } else {
+        await db.query(
+          `INSERT INTO student_skills (id, "profileId", "skillId", "customSkillName", proficiency, "createdAt")
+           VALUES ($1, $2, NULL, $3, $4, NOW())`,
+          [newId, profile.id, item.name.trim(), prof]
+        );
+      }
+    }
+
+    await db.query('UPDATE student_profiles SET "updatedAt" = NOW() WHERE id = $1', [profile.id]);
+
+    const skillsRes = await db.query(
+      `SELECT ss.id, ss."skillId", ss."customSkillName", ss.proficiency,
+              COALESCE(s.name, ss."customSkillName") AS name,
+              COALESCE(s.category, 'Custom') AS category
+       FROM student_skills ss
+       LEFT JOIN catalog_skills s ON ss."skillId" = s.id
+       WHERE ss."profileId" = $1
+       ORDER BY ss."createdAt" ASC`,
+      [profile.id]
+    );
+
+    return res.json({ message: 'Skills saved successfully', skills: skillsRes.rows });
+  } catch (err) {
+    console.error('Error saving skills:', err);
+    return res.status(500).json({ error: 'Failed to save skills' });
+  }
+});
+
+router.put('/skills/:id', requireAuth, async (req, res) => {
+  try {
+    const profile = await getOrCreateProfile(req.user.id);
+    const { proficiency } = req.body;
+    const prof = ['Beginner', 'Intermediate', 'Advanced'].includes(proficiency) ? proficiency : 'Beginner';
+
+    const result = await db.query(
+      `UPDATE student_skills
+       SET proficiency = $1
+       WHERE id = $2 AND "profileId" = $3
+       RETURNING *`,
+      [prof, req.params.id, profile.id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Skill not found' });
+    }
+
+    return res.json({ skill: result.rows[0] });
+  } catch (err) {
+    console.error('Error updating skill:', err);
+    return res.status(500).json({ error: 'Failed to update skill' });
+  }
+});
+
+router.delete('/skills/:id', requireAuth, async (req, res) => {
+  try {
+    const profile = await getOrCreateProfile(req.user.id);
+    await db.query('DELETE FROM student_skills WHERE id = $1 AND "profileId" = $2', [req.params.id, profile.id]);
+    return res.json({ message: 'Skill removed' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to delete skill' });
+  }
+});
+
+// --- PROJECTS ---
 router.post('/projects', requireAuth, async (req, res) => {
   try {
     const profile = await getOrCreateProfile(req.user.id);
@@ -629,6 +1010,12 @@ router.post('/projects', requireAuth, async (req, res) => {
     if (!title || !title.trim()) {
       return res.status(400).json({ error: 'Project title is required' });
     }
+
+    const techArray = Array.isArray(technologies)
+      ? technologies
+      : typeof technologies === 'string'
+      ? technologies.split(',').map((t) => t.trim()).filter(Boolean)
+      : [];
 
     const newId = crypto.randomUUID();
     const result = await db.query(
@@ -640,10 +1027,10 @@ router.post('/projects', requireAuth, async (req, res) => {
         newId,
         profile.id,
         title.trim(),
-        description || null,
-        technologies || [],
-        projectUrl || null,
-        githubUrl || null,
+        description ? description.trim() : null,
+        techArray,
+        projectUrl ? projectUrl.trim() : null,
+        githubUrl ? githubUrl.trim() : null,
         startDate || null,
         endDate || null,
         Boolean(isCurrent),
@@ -652,7 +1039,54 @@ router.post('/projects', requireAuth, async (req, res) => {
 
     return res.status(201).json({ project: result.rows[0] });
   } catch (err) {
+    console.error('Error adding project:', err);
     return res.status(500).json({ error: 'Failed to add project' });
+  }
+});
+
+router.put('/projects/:id', requireAuth, async (req, res) => {
+  try {
+    const profile = await getOrCreateProfile(req.user.id);
+    const { title, description, technologies, projectUrl, githubUrl, startDate, endDate, isCurrent } = req.body;
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({ error: 'Project title is required' });
+    }
+
+    const techArray = Array.isArray(technologies)
+      ? technologies
+      : typeof technologies === 'string'
+      ? technologies.split(',').map((t) => t.trim()).filter(Boolean)
+      : [];
+
+    const result = await db.query(
+      `UPDATE student_projects
+       SET title = $1, description = $2, technologies = $3, "projectUrl" = $4, "githubUrl" = $5,
+           "startDate" = $6, "endDate" = $7, "isCurrent" = $8
+       WHERE id = $9 AND "profileId" = $10
+       RETURNING *`,
+      [
+        title.trim(),
+        description ? description.trim() : null,
+        techArray,
+        projectUrl ? projectUrl.trim() : null,
+        githubUrl ? githubUrl.trim() : null,
+        startDate || null,
+        endDate || null,
+        Boolean(isCurrent),
+        req.params.id,
+        profile.id,
+      ]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    return res.json({ project: result.rows[0] });
+  } catch (err) {
+    console.error('Error updating project:', err);
+    return res.status(500).json({ error: 'Failed to update project' });
   }
 });
 
@@ -666,12 +1100,13 @@ router.delete('/projects/:id', requireAuth, async (req, res) => {
   }
 });
 
+// --- EXPERIENCES ---
 router.post('/experiences', requireAuth, async (req, res) => {
   try {
     const profile = await getOrCreateProfile(req.user.id);
     const { companyName, roleTitle, employmentType, location, startDate, endDate, isCurrent, description } = req.body;
 
-    if (!companyName || !roleTitle) {
+    if (!companyName || !companyName.trim() || !roleTitle || !roleTitle.trim()) {
       return res.status(400).json({ error: 'Company name and role title are required' });
     }
 
@@ -687,17 +1122,58 @@ router.post('/experiences', requireAuth, async (req, res) => {
         companyName.trim(),
         roleTitle.trim(),
         employmentType || 'Internship',
-        location || null,
+        location ? location.trim() : null,
         startDate || null,
         endDate || null,
         Boolean(isCurrent),
-        description || null,
+        description ? description.trim() : null,
       ]
     );
 
     return res.status(201).json({ experience: result.rows[0] });
   } catch (err) {
+    console.error('Error adding experience:', err);
     return res.status(500).json({ error: 'Failed to add experience' });
+  }
+});
+
+router.put('/experiences/:id', requireAuth, async (req, res) => {
+  try {
+    const profile = await getOrCreateProfile(req.user.id);
+    const { companyName, roleTitle, employmentType, location, startDate, endDate, isCurrent, description } = req.body;
+
+    if (!companyName || !companyName.trim() || !roleTitle || !roleTitle.trim()) {
+      return res.status(400).json({ error: 'Company name and role title are required' });
+    }
+
+    const result = await db.query(
+      `UPDATE student_experiences
+       SET "companyName" = $1, "roleTitle" = $2, "employmentType" = $3, location = $4,
+           "startDate" = $5, "endDate" = $6, "isCurrent" = $7, description = $8
+       WHERE id = $9 AND "profileId" = $10
+       RETURNING *`,
+      [
+        companyName.trim(),
+        roleTitle.trim(),
+        employmentType || 'Internship',
+        location ? location.trim() : null,
+        startDate || null,
+        endDate || null,
+        Boolean(isCurrent),
+        description ? description.trim() : null,
+        req.params.id,
+        profile.id,
+      ]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Experience not found' });
+    }
+
+    return res.json({ experience: result.rows[0] });
+  } catch (err) {
+    console.error('Error updating experience:', err);
+    return res.status(500).json({ error: 'Failed to update experience' });
   }
 });
 
@@ -711,6 +1187,7 @@ router.delete('/experiences/:id', requireAuth, async (req, res) => {
   }
 });
 
+// --- CERTIFICATIONS ---
 router.post('/certifications', requireAuth, async (req, res) => {
   try {
     const profile = await getOrCreateProfile(req.user.id);
@@ -731,18 +1208,59 @@ router.post('/certifications', requireAuth, async (req, res) => {
         profile.id,
         title.trim(),
         type === 'Achievement' ? 'Achievement' : 'Certification',
-        issuer || null,
+        issuer ? issuer.trim() : null,
         issueDate || null,
         expiryDate || null,
-        credentialUrl || null,
-        credentialId || null,
-        description || null,
+        credentialUrl ? credentialUrl.trim() : null,
+        credentialId ? credentialId.trim() : null,
+        description ? description.trim() : null,
       ]
     );
 
     return res.status(201).json({ certification: result.rows[0] });
   } catch (err) {
+    console.error('Error adding certification:', err);
     return res.status(500).json({ error: 'Failed to add certification' });
+  }
+});
+
+router.put('/certifications/:id', requireAuth, async (req, res) => {
+  try {
+    const profile = await getOrCreateProfile(req.user.id);
+    const { title, type, issuer, issueDate, expiryDate, credentialUrl, credentialId, description } = req.body;
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({ error: 'Title is required' });
+    }
+
+    const result = await db.query(
+      `UPDATE student_certifications
+       SET title = $1, type = $2, issuer = $3, "issueDate" = $4, "expiryDate" = $5,
+           "credentialUrl" = $6, "credentialId" = $7, description = $8
+       WHERE id = $9 AND "profileId" = $10
+       RETURNING *`,
+      [
+        title.trim(),
+        type === 'Achievement' ? 'Achievement' : 'Certification',
+        issuer ? issuer.trim() : null,
+        issueDate || null,
+        expiryDate || null,
+        credentialUrl ? credentialUrl.trim() : null,
+        credentialId ? credentialId.trim() : null,
+        description ? description.trim() : null,
+        req.params.id,
+        profile.id,
+      ]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Certification not found' });
+    }
+
+    return res.json({ certification: result.rows[0] });
+  } catch (err) {
+    console.error('Error updating certification:', err);
+    return res.status(500).json({ error: 'Failed to update certification' });
   }
 });
 
@@ -753,16 +1271,6 @@ router.delete('/certifications/:id', requireAuth, async (req, res) => {
     return res.json({ message: 'Certification removed' });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to delete certification' });
-  }
-});
-
-router.delete('/skills/:id', requireAuth, async (req, res) => {
-  try {
-    const profile = await getOrCreateProfile(req.user.id);
-    await db.query('DELETE FROM student_skills WHERE id = $1 AND "profileId" = $2', [req.params.id, profile.id]);
-    return res.json({ message: 'Skill removed' });
-  } catch (err) {
-    return res.status(500).json({ error: 'Failed to delete skill' });
   }
 });
 
