@@ -1,5 +1,6 @@
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+const { resolveAuthenticatedResources } = require('./resourceResolver');
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
@@ -508,10 +509,297 @@ Return STRICT JSON adhering to this exact structure:
 }
 
 /**
- * Fallback topic content generator
+ * Fallback topic content generator with technology-specific rich content
  */
 function getFallbackTopicContent(topicContext) {
   const { topicTitle = 'Core Software Concepts', skillCategory = 'Software Engineering', targetRole = 'Software Engineer' } = topicContext;
+  const lower = (topicTitle + ' ' + (skillCategory || '')).toLowerCase();
+
+  let codeExample = {
+    title: `Production Implementation Pattern for ${topicTitle}`,
+    language: 'javascript',
+    code: `// Resilient architecture pattern for ${topicTitle}
+export async function executeOperation(config = {}) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const response = await fetch('/api/v1/resource', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(\`HTTP \${response.status}: Failed to execute \${config.action || 'operation'}\`);
+    }
+
+    const data = await response.json();
+    return { success: true, data };
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      console.error('Request timed out after 8s');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}`,
+    explanation: 'Demonstrates resilient network invocation with automatic timeout aborts, explicit error classification, and cleanup.',
+  };
+
+  let detailed = `### Comprehensive Guide: ${topicTitle}
+
+In modern ${targetRole} workflows, **${topicTitle}** serves as a core architectural pillar for system reliability and maintainability.
+
+#### 1. Fundamental Principles & Architecture
+- **Separation of Concerns**: Decouple logic from external infrastructure so modules can be tested and modified independently.
+- **Fail-Safe Execution**: Every asynchronous and boundary-crossing operation must include structured error propagation.
+- **Defensive Design**: Validate and sanitize all incoming parameters before state transitions or downstream calls.
+
+#### 2. Implementation Walkthrough
+When integrating ${topicTitle} into production codebases:
+1. Establish standard contracts and interface definitions first.
+2. Encapsulate implementation details inside cohesive helper modules or service classes.
+3. Write isolated unit and integration tests covering standard execution as well as edge-case exceptions.
+
+#### 3. Production Monitoring & Optimization
+Ensure all failure pathways emit structured logs with contextual telemetry (timestamps, trace IDs, and sanitized parameters) to enable rapid root-cause analysis in distributed environments.`;
+
+  // Technology-specific rich content
+  if (lower.includes('docker') || lower.includes('container') || lower.includes('devops')) {
+    codeExample = {
+      title: 'Production Multi-stage Dockerfile (Node.js & Alpine)',
+      language: 'dockerfile',
+      code: `# Stage 1: Build & Dependencies
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --prefer-offline --no-audit
+COPY . .
+RUN npm run build && npm prune --production
+
+# Stage 2: Minimal Production Runtime
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+RUN addgroup -g 1001 nodejs && adduser -u 1001 -G nodejs -s /bin/sh -D nodejs
+
+COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
+COPY --from=builder --chown=nodejs:nodejs /app/package.json ./package.json
+
+USER nodejs
+EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=3s --retries=3 \\
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
+
+CMD ["node", "dist/index.js"]`,
+      explanation: 'Multi-stage build eliminates build tools and devDependencies from the final container image, reducing size by up to 80% and mitigating vulnerabilities.',
+    };
+
+    detailed = `### Deep Dive: Docker Containerization & Multi-stage Builds
+
+Containerization provides an immutable, reproducible runtime across development, staging, and production environments.
+
+#### 1. Why Multi-stage Builds Matter
+Traditional Docker builds include compilers, linters, devDependencies, and test runners directly in the shipped container. Multi-stage builds solve this by separating the **build stage** from the **runtime stage**:
+- **Drastically Reduced Image Size**: Only runtime binaries and production node_modules exist in the final artifact.
+- **Hardened Security Surface**: Attack tools (compilers, package managers) are completely absent from production images.
+- **Optimal Layer Caching**: Placing dependency manifests (\`package.json\`) ahead of source code prevents unnecessary \`npm install\` runs when only application code changes.
+
+#### 2. Production Checklist
+1. Never run containers as the \`root\` user—always create an unprivileged service user (e.g., \`USER nodejs\`).
+2. Implement built-in container \`HEALTHCHECK\` directives for Kubernetes/ECS orchestrators.
+3. Pin base image versions strictly (e.g. \`node:20.11-alpine3.19\` instead of \`node:latest\`).`;
+  } else if (lower.includes('react') || lower.includes('jsx') || lower.includes('frontend')) {
+    codeExample = {
+      title: 'Advanced React Custom Hook Pattern (useDebounce & AbortController)',
+      language: 'javascript',
+      code: `import { useState, useEffect, useRef } from 'react';
+
+export function useDebounce(value, delay = 300) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+
+  return debouncedValue;
+}
+
+export function useSearchQuery(searchQuery) {
+  const [results, setResults] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const debouncedQuery = useDebounce(searchQuery, 400);
+
+  useEffect(() => {
+    if (!debouncedQuery.trim()) {
+      setResults([]);
+      return;
+    }
+
+    const abortController = new AbortController();
+    setIsLoading(true);
+
+    fetch(\`/api/search?q=\${encodeURIComponent(debouncedQuery)}\`, {
+      signal: abortController.signal
+    })
+      .then(res => res.json())
+      .then(data => setResults(data.items || []))
+      .catch(err => {
+        if (err.name !== 'AbortError') console.error('Search failed:', err);
+      })
+      .finally(() => setIsLoading(false));
+
+    return () => abortController.abort();
+  }, [debouncedQuery]);
+
+  return { results, isLoading };
+}`,
+      explanation: 'Combines debouncing with clean cancellation via AbortController to eliminate race conditions and avoid unnecessary server calls.',
+    };
+
+    detailed = `### Deep Dive: Advanced React.js Patterns & Component Architecture
+
+Modern React engineering focuses on composability, custom hook abstractions, and state decoupling.
+
+#### 1. Core Principles
+- **Hooks as Behavioral Contracts**: Encapsulate reusable state and side-effects into custom hooks (\`useSearchQuery\`, \`useAuth\`), keeping UI components purely declarative.
+- **Race Condition Prevention**: Whenever network requests are triggered inside \`useEffect\`, always clean up using \`AbortController\` to discard stale responses from out-of-order completions.
+- **Render Optimization**: Use \`useMemo\` and \`useCallback\` with purpose—benchmark re-renders rather than prematurely optimizing primitive values.
+
+#### 2. Practical Execution Guidelines
+1. Keep component state local until two or more sibling components genuinely share ownership.
+2. Structure compound components using React Context for accessible widgets like tabs, modals, and dropdowns.
+3. Treat props as immutable inputs and maintain single sources of truth.`;
+  } else if (lower.includes('html') || lower.includes('css')) {
+    codeExample = {
+      title: 'Semantic HTML5 Structure with Modern CSS Grid & Flexbox',
+      language: 'html',
+      code: `<!-- Accessible, Semantic Production HTML5 Layout -->
+<main class="page-container">
+  <header class="hero-section">
+    <nav aria-label="Main Navigation" class="main-nav">
+      <a href="/" class="brand-logo">FutureMe</a>
+      <ul class="nav-links">
+        <li><a href="/dashboard">Dashboard</a></li>
+        <li><a href="/roadmap">Roadmap</a></li>
+      </ul>
+    </nav>
+    <h1>Modern Frontend Architecture</h1>
+  </header>
+
+  <section class="content-grid" aria-labelledby="modules-title">
+    <h2 id="modules-title" class="sr-only">Learning Modules</h2>
+    <article class="card">
+      <h3>Design Systems</h3>
+      <p>Building cohesive component libraries with CSS custom properties.</p>
+    </article>
+    <article class="card">
+      <h3>Responsive Layouts</h3>
+      <p>Fluid grids using auto-fit and minmax without media queries.</p>
+    </article>
+  </section>
+</main>
+
+<style>
+  .content-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+    padding: 2rem 1rem;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  .card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  }
+</style>`,
+      explanation: 'Employs proper semantic landmark elements (<main>, <header>, <section>, <article>) paired with an intrinsic responsive grid that adapts across all screen widths without fragile breakpoints.',
+    };
+
+    detailed = `### Deep Dive: Production HTML5 & CSS3 Engineering
+
+High-performance web applications require solid semantic foundations and robust layout methodologies.
+
+#### 1. Semantic Architecture & Accessibility (a11y)
+- **Landmark Elements**: Use \`<main>\`, \`<nav>\`, \`<header>\`, \`<footer>\`, and \`<section>\` so assistive technologies (screen readers) can easily navigate the document hierarchy.
+- **Heading Hierarchy**: Maintain a strict \`<h1>\` to \`<h6>\` heading sequence without skipping levels for visual styling.
+- **Forms & Inputs**: Always associate \`<label for="id">\` explicitly with form controls to ensure accessible touch targets and voice navigation.
+
+#### 2. Modern CSS Layout Strategies
+- **CSS Grid for Macro Layouts**: Leverage \`repeat(auto-fit, minmax(280px, 1fr))\` for intrinsic 2D responsiveness that rearranges columns naturally.
+- **Flexbox for Micro Components**: Use Flexbox for 1D alignments like navigation bars, badge lists, and button groups.
+- **CSS Custom Properties**: Maintain a design token system (\`--color-primary\`, \`--radius-md\`) for consistent theming and dark mode adaptation.`;
+  } else if (lower.includes('node') || lower.includes('express')) {
+    codeExample = {
+      title: 'Production Express Router with Validation & Centralized Error Middleware',
+      language: 'javascript',
+      code: `const express = require('express');
+const router = express.Router();
+
+// Modular Async Handler to avoid repetitive try/catch boilerplate
+const asyncHandler = (fn) => (req, res, next) =>
+  Promise.resolve(fn(req, res, next)).catch(next);
+
+// Validation Middleware
+function validateUserPayload(req, res, next) {
+  const { email, role } = req.body;
+  if (!email || !email.includes('@')) {
+    return res.status(400).json({ error: 'Valid email address is required' });
+  }
+  req.sanitizedEmail = email.trim().toLowerCase();
+  next();
+}
+
+// Controller route
+router.post('/register', validateUserPayload, asyncHandler(async (req, res) => {
+  const user = await createUserRecord({
+    email: req.sanitizedEmail,
+    role: req.body.role || 'STUDENT',
+  });
+  return res.status(201).json({ success: true, user });
+}));
+
+// Centralized error-handling middleware
+router.use((err, req, res, next) => {
+  console.error('[API Error]:', err.message, err.stack);
+  const status = err.statusCode || 500;
+  res.status(status).json({
+    success: false,
+    error: status === 500 ? 'Internal Server Error' : err.message,
+  });
+});
+
+module.exports = router;`,
+      explanation: 'Production Express router featuring modular async wrapping, input sanitation middleware, and structured 4-argument centralized error handling.',
+    };
+
+    detailed = `### Deep Dive: Production Node.js & Express Engineering
+
+Building high-throughput, fault-tolerant backend services requires strict adherence to asynchronous runtime best practices.
+
+#### 1. Core Principles
+- **Non-blocking Event Loop**: Never execute CPU-heavy synchronous operations (\`fs.readFileSync\`, heavy loops) on the main thread; offload to worker threads or external queues.
+- **Centralized Error Propagation**: Unhandled promise rejections can crash the Node process. Use standard 4-argument error middlewares to capture and log every exception.
+- **Environment & Secret Hygiene**: Never hardcode configuration strings; load credentials dynamically via validated environment variables.`;
+  }
 
   return {
     topicTitle,
@@ -522,35 +810,8 @@ function getFallbackTopicContent(topicContext) {
       { concept: 'Production Reliability', summary: 'Handling errors, edge cases, and asynchronous state transitions safely.' },
       { concept: 'Performance Optimization', summary: 'Techniques to minimize latency, reduce memory footprint, and write non-blocking logic.' }
     ],
-    detailedContent: `### Understanding ${topicTitle}
-
-In modern ${targetRole} architectures, **${topicTitle}** plays a critical role in application reliability and scalability.
-
-#### 1. Core Principles
-- Modular separation of concerns
-- Safe error propagation and centralized handling
-- Defensive coding against malformed inputs and concurrency issues
-
-#### 2. Practical Execution
-When implementing ${topicTitle}, always ensure that your abstractions are testable and decoupled from external side-effects.`,
-    codeExamples: [
-      {
-        title: `Standard Implementation Pattern for ${topicTitle}`,
-        language: 'javascript',
-        code: `// Scalable implementation example for ${topicTitle}
-async function handleOperation(payload) {
-  try {
-    if (!payload) throw new Error('Invalid payload');
-    const result = await processData(payload);
-    return { success: true, data: result };
-  } catch (error) {
-    console.error('Operation failed:', error.message);
-    throw error;
-  }
-}`,
-        explanation: 'Uses asynchronous boundaries with structured error bubbling to ensure caller receives predictable outcomes.'
-      }
-    ],
+    detailedContent: detailed,
+    codeExamples: [codeExample],
     bestPractices: [
       'Write isolated unit tests covering both the happy path and edge-case exceptions.',
       'Always sanitize and validate external parameters before processing.',
@@ -560,29 +821,7 @@ async function handleOperation(payload) {
       'Swallowing exceptions silently without logging or alerting.',
       'Blocking execution with synchronous operations in high-throughput paths.'
     ],
-    resources: [
-      {
-        title: `${topicTitle} - Official Documentation`,
-        type: 'Documentation',
-        url: 'https://developer.mozilla.org/en-US/docs/Web',
-        description: 'Official guides, documentation, and standard code examples.',
-        isFree: true
-      },
-      {
-        title: 'Building Real-World Systems - FreeCodeCamp Guide',
-        type: 'Article',
-        url: 'https://www.freecodecamp.org/news',
-        description: 'Practical tutorial explaining how this works in real projects.',
-        isFree: true
-      },
-      {
-        title: `${topicTitle} Hands-on Crash Course`,
-        type: 'Video',
-        url: 'https://www.youtube.com',
-        description: 'Step-by-step visual walkthrough building a real production project.',
-        isFree: true
-      }
-    ]
+    resources: resolveAuthenticatedResources(topicTitle, skillCategory),
   };
 }
 
@@ -600,6 +839,11 @@ Category: "${skillCategory || 'Software Engineering'}"
 Difficulty: "${difficulty || 'Intermediate'}"
 Target Career Role: "${targetRole || 'Software Engineer'}"
 Subtopics to cover: ${JSON.stringify(subtopics.map(s => typeof s === 'string' ? s : s.title || s))}
+
+CRITICAL REQUIREMENTS:
+1. "detailedContent": Must be a rich, thorough, in-depth Markdown tutorial (at least 600-800 words) with clear architectural breakdowns, deep technical explanations, and practical production guidance.
+2. "codeExamples": Must contain REAL, PRODUCTION-GRADE code specifically written for "${topicTitle}". NEVER provide generic or placeholder examples! (e.g. For Docker provide an authentic multi-stage Dockerfile; for React provide authentic custom hooks/components; for CSS provide modern CSS Grid/Flexbox; for Node/Express provide authentic routers/middleware).
+3. "resources": Provide authentic, high-quality resources.
 
 Respond with ONLY valid JSON adhering strictly to this schema:
 {
@@ -624,7 +868,7 @@ Respond with ONLY valid JSON adhering strictly to this schema:
     {
       "title": string,
       "type": "Documentation" | "Video" | "Article" | "Interactive",
-      "url": string (real, reputable URL e.g. MDN, official docs, freecodecamp, github),
+      "url": string,
       "description": string,
       "isFree": boolean
     }
@@ -633,7 +877,12 @@ Respond with ONLY valid JSON adhering strictly to this schema:
 `;
 
   try {
-    return await callGemini(prompt);
+    const aiResult = await callGemini(prompt);
+    return {
+      ...aiResult,
+      // Authenticate and guarantee that all resources are direct, authentic, non-broken links
+      resources: resolveAuthenticatedResources(topicTitle, skillCategory),
+    };
   } catch (err) {
     console.warn('Gemini topic content generation failed, using intelligent fallback:', err.message);
     return getFallbackTopicContent(topicContext);
@@ -641,7 +890,7 @@ Respond with ONLY valid JSON adhering strictly to this schema:
 }
 
 /**
- * Fallback topic assessment generator
+ * Fallback topic assessment generator (12 Questions: 4 Easy, 4 Medium, 4 Hard)
  */
 function getFallbackTopicAssessment(topicContext) {
   const { topicTitle = 'Core Software Concepts', skillCategory = 'Software Engineering' } = topicContext;
@@ -652,78 +901,220 @@ function getFallbackTopicAssessment(topicContext) {
     skillName: inferredSkill,
     passingScore: 70,
     questions: [
+      // 1-4: EASY QUESTIONS (Fundamentals, Definitions & Syntax)
       {
         id: 'q-1',
-        question: `What is the primary architectural advantage of implementing ${topicTitle} correctly?`,
-        scenario: 'You are reviewing a pull request for a microservice handling high-throughput production requests.',
+        difficulty: 'Easy',
+        question: `What is the primary purpose and definition of ${topicTitle}?`,
+        scenario: 'You are introducing the architecture of a new application to junior team members.',
         options: [
-          'It eliminates the need for database indexes entirely',
-          'It improves modularity, testability, and non-blocking asynchronous throughput',
-          'It automatically converts code into machine language at compile time',
-          'It reduces all network calls to zero milliseconds'
+          'A proprietary system that completely replaces all database drivers and network protocols',
+          `A standardized approach to building, organizing, and maintaining scalable ${topicTitle} logic`,
+          'A tool used solely to compile code into assembly language without debugging',
+          'A hardware accelerator used for physical network load balancers'
         ],
         correctIndex: 1,
-        explanation: 'Correct implementation ensures decoupled components, predictable error boundaries, and scalable asynchronous resource utilization.'
+        explanation: `${topicTitle} provides a standardized, maintainable pattern for implementing and managing software capabilities reliably.`
       },
       {
         id: 'q-2',
-        question: `Which of the following is considered an anti-pattern when working with ${topicTitle}?`,
-        scenario: 'A production bug occurred where uncaught exceptions caused worker processes to exit without notifications.',
+        difficulty: 'Easy',
+        question: `Which fundamental building block is most central to working with ${topicTitle}?`,
+        scenario: 'Setting up the base development environment and project structure for a new feature branch.',
         options: [
-          'Writing comprehensive unit and integration tests',
-          'Silently swallowing errors with an empty catch block without logging or propagation',
-          'Utilizing environment variables for secrets and external API configurations',
-          'Encapsulating business logic inside pure functions'
+          'Random binary memory offsets without variable bindings',
+          'Clearly defined modular components, structured interfaces, and explicit inputs/outputs',
+          'Unversioned global variables accessible across all system threads',
+          'Hardcoded IP addresses inside client-facing application views'
         ],
         correctIndex: 1,
-        explanation: 'Swallowing errors hides failures from monitoring tools and leaves the system in an unpredictable state.'
+        explanation: 'Modular structure, clear interfaces, and predictable data flow form the core foundation of reliable development.'
       },
       {
         id: 'q-3',
-        question: `When deploying code related to ${topicTitle} in a production environment, what practice should always be followed?`,
-        scenario: 'Preparing for a zero-downtime rolling deployment to a cloud Kubernetes cluster.',
+        difficulty: 'Easy',
+        question: `What is a primary advantage of adopting ${topicTitle} in a modern web codebase?`,
+        scenario: 'Your engineering team evaluates technical debt and chooses modern standards.',
         options: [
-          'Hardcode test credentials directly in the repository for faster debugging',
-          'Disable health checks to speed up pod startup times',
-          'Validate configurations, monitor health metrics, and employ automated rollback triggers',
-          'Run memory-intensive tasks synchronously inside the main request thread'
+          'It guarantees zero latency regardless of internet connection speed',
+          'It eliminates the need for unit tests or code reviews',
+          'It enhances code reusability, maintainability, and predictable developer collaboration',
+          'It permanently bypasses web security policies and browser restrictions'
         ],
         correctIndex: 2,
-        explanation: 'Production readiness requires externalized configuration, active health probes, and automated rollback strategies.'
+        explanation: 'Consistent architectural patterns dramatically improve readability, onboarding speed, and long-term codebase health.'
+      },
+      {
+        id: 'q-4',
+        difficulty: 'Easy',
+        question: `When initializing a module or component using ${topicTitle}, what convention is recommended?`,
+        scenario: 'Bootstrapping a new service file following standard team conventions.',
+        options: [
+          'Naming files randomly with numbers and avoiding version control commits',
+          'Following consistent naming conventions, explicit imports, and strict type/linter rules',
+          'Declaring all variables in the global namespace to skip import statements',
+          'Disabling all runtime logging and warnings to maximize build speed'
+        ],
+        correctIndex: 1,
+        explanation: 'Clean file organization, strict linting, and explicit imports prevent dependency conflicts and runtime confusion.'
+      },
+
+      // 5-8: MEDIUM QUESTIONS (Implementation, Lifecycle, Error Handling & Testing)
+      {
+        id: 'q-5',
+        difficulty: 'Medium',
+        question: `How should state and lifecycle changes be managed when implementing ${topicTitle}?`,
+        scenario: 'A state update in one view needs to notify dependent components without triggering unnecessary re-renders.',
+        options: [
+          'Mutating the global DOM tree directly from arbitrary asynchronous timeouts',
+          'Using predictable, immutable state transitions with unidirectional data flow',
+          'Duplicating identical state variables across every component hierarchy',
+          'Polling an external REST API every millisecond synchronously'
+        ],
+        correctIndex: 1,
+        explanation: 'Immutable updates and unidirectional flow guarantee predictable state synchronization and eliminate stale state bugs.'
+      },
+      {
+        id: 'q-6',
+        difficulty: 'Medium',
+        question: `What is the recommended approach for handling asynchronous exceptions in ${topicTitle}?`,
+        scenario: 'An external API request fails intermittently due to temporary network timeouts.',
+        options: [
+          'Silently catch the error with an empty block so the UI never displays an error',
+          'Terminate the entire client process immediately on the first network hiccup',
+          'Implement structured try-catch or rejection handlers with user feedback and exponential backoff retries',
+          'Ignore the promise rejection and assume data will arrive eventually'
+        ],
+        correctIndex: 2,
+        explanation: 'Resilient applications handle transient failures gracefully through bounded retries, logging, and intuitive fallback UI.'
+      },
+      {
+        id: 'q-7',
+        difficulty: 'Medium',
+        question: `Which of the following is considered an anti-pattern when developing with ${topicTitle}?`,
+        scenario: 'Refactoring a high-traffic service that suffers from frequent regressions and tight coupling.',
+        options: [
+          'Writing comprehensive integration tests for critical business paths',
+          'Tightly coupling business logic directly inside view layers without separation of concerns',
+          'Validating API payloads against strict schemas before persisting data',
+          'Extracting repeatable utility calculations into pure helper functions'
+        ],
+        correctIndex: 1,
+        explanation: 'Mixing presentation and business logic breaks reusability, hinders unit testing, and increases regression risk.'
+      },
+      {
+        id: 'q-8',
+        difficulty: 'Medium',
+        question: `When writing automated tests for features built with ${topicTitle}, what strategy is most effective?`,
+        scenario: 'Configuring Continuous Integration (CI) test suites to run on every pull request.',
+        options: [
+          'Only test with manual console logs in production environments',
+          'Mock external I/O and network boundaries while testing core user interactions and edge conditions',
+          'Test only happy paths and ignore edge cases to keep test suites green',
+          'Avoid mocking and require live third-party payment gateways for every unit test'
+        ],
+        correctIndex: 1,
+        explanation: 'Mocking external boundaries creates fast, deterministic tests while verifying business logic under both success and error conditions.'
+      },
+
+      // 9-12: HARD QUESTIONS (Architecture, High Scale, Performance & Security)
+      {
+        id: 'q-9',
+        difficulty: 'Hard',
+        question: `Under heavy production traffic, how can you prevent memory leaks and thread exhaustion in ${topicTitle}?`,
+        scenario: 'A microservice exhibits gradual memory growth under sustained load over several days.',
+        options: [
+          'Reboot the host server every 10 minutes using a scheduled cron script',
+          'Clean up event listeners, cancel pending subscriptions, and avoid retaining references in unbounded global caches',
+          'Disable garbage collection completely to decrease CPU usage',
+          'Increase machine RAM infinitely without profiling heap dumps'
+        ],
+        correctIndex: 1,
+        explanation: 'Dangling event listeners, unclosed streams, and unbounded collections are the leading causes of production memory leaks.'
+      },
+      {
+        id: 'q-10',
+        difficulty: 'Hard',
+        question: `How should zero-downtime deployments and horizontal scaling be orchestrated for systems running ${topicTitle}?`,
+        scenario: 'Deploying a major architectural release to a cloud cluster serving thousands of concurrent users.',
+        options: [
+          'Deploy during peak traffic hours without database backup or rolling health probes',
+          'Employ stateless worker nodes, container health checks, gradual canary rollouts, and backward-compatible schema changes',
+          'Shut down all servers simultaneously to replace binary files in-place',
+          'Store session states exclusively in local server process memory'
+        ],
+        correctIndex: 1,
+        explanation: 'Stateless instances, robust health checks, and backward-compatible migrations allow rolling updates without downtime.'
+      },
+      {
+        id: 'q-11',
+        difficulty: 'Hard',
+        question: `How do you resolve race conditions and optimistic concurrency conflicts in ${topicTitle}?`,
+        scenario: 'Two concurrent users attempt to update the same shared resource at the exact same millisecond.',
+        options: [
+          'Allow the last write to silently overwrite previous data without version validation',
+          'Use version numbers/timestamps with optimistic locking or distributed locks, returning clear conflict resolution choices',
+          'Queue all system requests sequentially through a single global thread',
+          'Disable concurrency and restrict the entire system to one user at a time'
+        ],
+        correctIndex: 1,
+        explanation: 'Optimistic locking using version columns detects stale updates and prevents data corruption in concurrent distributed systems.'
+      },
+      {
+        id: 'q-12',
+        difficulty: 'Hard',
+        question: `What security hardening practice is critical when processing untrusted inputs with ${topicTitle}?`,
+        scenario: 'Conducting an external penetration test and security audit before an enterprise release.',
+        options: [
+          'Relying solely on client-side form validation without server-side validation',
+          'Enforcing strict server-side sanitization, parameterized queries, Content Security Policy (CSP), and role-based access checks',
+          'Disabling CORS checks to allow requests from any third-party origin',
+          'Storing unhashed authentication passwords in local storage cookies'
+        ],
+        correctIndex: 1,
+        explanation: 'Defense in depth requires server-side validation, parameterized database execution, safe headers, and principle of least privilege.'
       }
     ]
   };
 }
 
 /**
- * Phase 6: Generate Topic Quiz / Assessment
+ * Phase 6: Generate Topic Quiz / Assessment (12 Questions: 4 Easy, 4 Medium, 4 Hard)
  */
 async function generateTopicAssessment(topicContext) {
   const { topicTitle, skillCategory, difficulty, targetRole } = topicContext;
 
   const prompt = `
-You are a Principal Technical Assessor at FutureMe.
-Generate a high-yield 3-question multiple choice assessment for the topic:
+You are an expert technical assessor and principal engineer at FutureMe.
+Generate a comprehensive 12-question practice assessment for the topic:
 Topic: "${topicTitle}"
 Category: "${skillCategory || 'Software Engineering'}"
 Difficulty: "${difficulty || 'Intermediate'}"
 Target Role: "${targetRole || 'Software Engineer'}"
 
-The questions must test practical, real-world understanding and edge-case handling, not trivial definitions.
+CRITICAL INSTRUCTIONS:
+The assessment MUST contain EXACTLY 12 multiple choice questions in this strict difficulty distribution:
+- Questions 1 to 4 MUST be "Easy": Fundamental concepts, syntax, definitions, core purpose, and terminology.
+- Questions 5 to 8 MUST be "Medium": Practical implementation patterns, lifecycle, error handling, standard libraries, and testing.
+- Questions 9 to 12 MUST be "Hard": Advanced edge cases, performance optimization, architectural trade-offs, concurrency, and security hardening.
+
+Every question must be realistic, practical, and clear.
 Respond with ONLY valid JSON adhering strictly to this schema:
 {
-  "topicTitle": string,
-  "skillName": string (the primary technical skill evaluated, e.g. "Docker", "Node.js", "PostgreSQL", "React", "TypeScript"),
+  "topicTitle": "${topicTitle}",
+  "skillName": string (the primary technical skill evaluated, e.g. "React", "Docker", "Node.js", "PostgreSQL", "TypeScript"),
   "passingScore": 70,
   "questions": [
     {
-      "id": string (e.g. "q-1", "q-2", "q-3"),
+      "id": "q-1",
+      "difficulty": "Easy",
       "question": string,
-      "scenario": string (a short 1-sentence real-world production context),
-      "options": string[] (exactly 4 options),
+      "scenario": string (a short 1-sentence real-world developer context),
+      "options": string[] (exactly 4 realistic options),
       "correctIndex": number (0 to 3),
       "explanation": string (concise explanation of why the correct option is right and the others are flawed)
-    }
+    },
+    ... (total exactly 12 questions: 4 Easy, 4 Medium, 4 Hard)
   ]
 }
 `;
@@ -741,4 +1132,5 @@ module.exports = {
   generateLearningPath,
   generateTopicContent,
   generateTopicAssessment,
+  getFallbackTopicContent,
 };

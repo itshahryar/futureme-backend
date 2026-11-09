@@ -8,7 +8,9 @@ const {
   generateLearningPath,
   generateTopicContent,
   generateTopicAssessment,
+  getFallbackTopicContent,
 } = require('../services/aiService');
+const { resolveAuthenticatedResources } = require('../services/resourceResolver');
 
 /**
  * Helper to ensure student profile exists
@@ -465,9 +467,60 @@ router.post('/topic/:topicId/content', requireAuth, async (req, res) => {
     );
 
     if (existingRes.rows.length > 0) {
+      const material = existingRes.rows[0];
+      const rawResources = Array.isArray(material.resources)
+        ? material.resources
+        : (typeof material.resources === 'string' ? JSON.parse(material.resources || '[]') : []);
+
+      // Check if existing cached resources or content need upgrade (generic links or placeholder boilerplate)
+      const hasGenericLinks = rawResources.length === 0 || rawResources.some(
+        (r) => !r.url ||
+               r.url === 'https://www.youtube.com' ||
+               r.url.includes('youtube.com/results') ||
+               r.url === 'https://www.freecodecamp.org/news' ||
+               r.url.includes('freecodecamp.org/news/search') ||
+               r.url === 'https://developer.mozilla.org/en-US/docs/Web' ||
+               r.url.includes('developer.mozilla.org/en-US/search') ||
+               r.url.includes('github.com/topics')
+      );
+
+      const hasGenericCode =
+        !material.detailedContent ||
+        (material.detailedContent.includes('Understanding ' + material.topicTitle) &&
+         JSON.stringify(material.codeExamples || '').includes('handleOperation'));
+
+      if (hasGenericLinks || hasGenericCode) {
+        const enriched = getFallbackTopicContent({
+          topicTitle: material.topicTitle || topicTitle,
+          skillCategory: material.skillCategory || skillCategory,
+          targetRole: targetRole || 'Full-Stack Developer',
+        });
+
+        const newResources = resolveAuthenticatedResources(
+          material.topicTitle || topicTitle,
+          material.skillCategory || skillCategory
+        );
+
+        const newCode = hasGenericCode ? JSON.stringify(enriched.codeExamples) : JSON.stringify(material.codeExamples);
+        const newDetailed = hasGenericCode ? enriched.detailedContent : material.detailedContent;
+
+        await db.query(
+          `UPDATE topic_learning_materials 
+           SET resources = $1, "codeExamples" = $2, "detailedContent" = $3, "updatedAt" = NOW() 
+           WHERE id = $4`,
+          [JSON.stringify(newResources), newCode, newDetailed, material.id]
+        );
+
+        material.resources = newResources;
+        if (hasGenericCode) {
+          material.codeExamples = enriched.codeExamples;
+          material.detailedContent = enriched.detailedContent;
+        }
+      }
+
       return res.json({
         cached: true,
-        material: existingRes.rows[0],
+        material,
       });
     }
 
@@ -533,28 +586,38 @@ router.post('/topic/:topicId/assessment', requireAuth, async (req, res) => {
 
     if (existingRes.rows.length > 0) {
       const assessment = existingRes.rows[0];
-      // Do not reveal correctIndex on initial fetch so student cannot cheat
-      const questionsWithoutAnswers = (assessment.questions || []).map((q) => ({
-        id: q.id,
-        question: q.question,
-        scenario: q.scenario,
-        options: q.options,
-      }));
+      const rawQuestions = Array.isArray(assessment.questions)
+        ? assessment.questions
+        : (typeof assessment.questions === 'string' ? JSON.parse(assessment.questions) : []);
 
-      return res.json({
-        cached: true,
-        assessment: {
-          id: assessment.id,
-          topicId: assessment.topicId,
-          topicTitle: assessment.topicTitle,
-          skillName: assessment.skillName,
-          passingScore: assessment.passingScore,
-          questions: questionsWithoutAnswers,
-        },
-      });
+      // If cached assessment already has 12 questions (4 Easy, 4 Medium, 4 Hard), return it
+      if (rawQuestions.length >= 12) {
+        const questionsWithoutAnswers = rawQuestions.map((q, idx) => ({
+          id: q.id || `q-${idx + 1}`,
+          difficulty: q.difficulty || (idx < 4 ? 'Easy' : idx < 8 ? 'Medium' : 'Hard'),
+          question: q.question,
+          scenario: q.scenario,
+          options: q.options,
+        }));
+
+        return res.json({
+          cached: true,
+          assessment: {
+            id: assessment.id,
+            topicId: assessment.topicId,
+            topicTitle: assessment.topicTitle,
+            skillName: assessment.skillName,
+            passingScore: assessment.passingScore,
+            questions: questionsWithoutAnswers,
+          },
+        });
+      }
+
+      // If cached assessment has old 3 questions, remove it to generate the fresh 12-question quiz
+      await db.query('DELETE FROM topic_assessments WHERE "topicId" = $1', [topicId]);
     }
 
-    // Call AI Service
+    // Call AI Service for 12 questions (4 Easy, 4 Medium, 4 Hard)
     const aiAssessment = await generateTopicAssessment({
       topicTitle: topicTitle || 'Core Concepts',
       skillCategory: skillCategory || 'Software Engineering',
@@ -567,6 +630,11 @@ router.post('/topic/:topicId/assessment', requireAuth, async (req, res) => {
       `INSERT INTO topic_assessments (
         id, "topicId", "topicTitle", "skillName", questions, "passingScore", "createdAt"
       ) VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      ON CONFLICT ("topicId") DO UPDATE SET
+        "topicTitle" = EXCLUDED."topicTitle",
+        "skillName" = EXCLUDED."skillName",
+        questions = EXCLUDED.questions,
+        "passingScore" = EXCLUDED."passingScore"
       RETURNING *`,
       [
         assessmentId,
@@ -579,8 +647,13 @@ router.post('/topic/:topicId/assessment', requireAuth, async (req, res) => {
     );
 
     const saved = insertRes.rows[0];
-    const questionsWithoutAnswers = (saved.questions || []).map((q) => ({
-      id: q.id,
+    const savedQuestions = Array.isArray(saved.questions)
+      ? saved.questions
+      : (typeof saved.questions === 'string' ? JSON.parse(saved.questions) : []);
+
+    const questionsWithoutAnswers = savedQuestions.map((q, idx) => ({
+      id: q.id || `q-${idx + 1}`,
+      difficulty: q.difficulty || (idx < 4 ? 'Easy' : idx < 8 ? 'Medium' : 'Hard'),
       question: q.question,
       scenario: q.scenario,
       options: q.options,
@@ -625,15 +698,18 @@ router.post('/topic/:topicId/submit-assessment', requireAuth, async (req, res) =
     }
 
     const assessment = assessmentRes.rows[0];
-    const questions = assessment.questions || [];
+    const rawQuestions = Array.isArray(assessment.questions)
+      ? assessment.questions
+      : (typeof assessment.questions === 'string' ? JSON.parse(assessment.questions) : []);
 
     let correctCount = 0;
-    const results = questions.map((q) => {
+    const results = rawQuestions.map((q, idx) => {
       const selected = answers[q.id];
       const isCorrect = selected === q.correctIndex;
       if (isCorrect) correctCount++;
       return {
         id: q.id,
+        difficulty: q.difficulty || (idx < 4 ? 'Easy' : idx < 8 ? 'Medium' : 'Hard'),
         question: q.question,
         selectedOption: selected,
         correctOption: q.correctIndex,
@@ -642,8 +718,8 @@ router.post('/topic/:topicId/submit-assessment', requireAuth, async (req, res) =
       };
     });
 
-    const score = questions.length > 0
-      ? Math.round((correctCount / questions.length) * 100)
+    const score = rawQuestions.length > 0
+      ? Math.round((correctCount / rawQuestions.length) * 100)
       : 0;
 
     const passed = score >= (assessment.passingScore || 70);
